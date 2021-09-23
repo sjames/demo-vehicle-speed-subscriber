@@ -1,65 +1,104 @@
 use core::{num, time};
+use std::io::Read;
 use std::{sync::Arc, thread};
 
+use async_std::task;
 use cyclonedds_rs::dds_topic::DdsEntity;
 use cyclonedds_rs::serdes::{Sample, SampleBuffer};
-use cyclonedds_rs::{*};
-use vehicle_signals::v2::vehicle::Speed;
+use cyclonedds_rs::*;
+use futures::{select, FutureExt};
 use vehicle_signals::v2::vehicle::cabin::door::window::Position;
+use vehicle_signals::v2::vehicle::Speed;
 
 fn main() {
-    //println!("Subscribing vehicle speed every 10ms");
+    // Listener for the participant to listen to the subscription matched status
+    let listener = DdsListener::new()
+        .on_subscription_matched(|a, b| {
+            println!(
+                "Subscription matched! {:?} : {:?}",
+                unsafe { a.entity() },
+                b
+            );
+        })
+        .on_publication_matched(|a, b| {
+            println!("Publication matched! {:?} : {:?}", unsafe { a.entity() }, b);
+        })
+        .hook();
 
-    let mut listener = DdsListener::new();
-    let listener = listener.on_subscription_matched(|a,b| {
-        println!("Subscription matched!");
-    }).on_publication_matched(|a,b|{
-        println!("Publication matched");
-    }).
-    hook();
+    let participant = ParticipantBuilder::new()
+        .with_listener(listener)
+        .create()
+        .expect("Unable to create participant");
+    let subscriber = SubscriberBuilder::new()
+        .create(&participant)
+        .expect("Unable to create subscriber");
+    let qos = DdsQos::create()
+        .unwrap()
+        .set_durability(cyclonedds_rs::dds_durability_kind::DDS_DURABILITY_VOLATILE)
+        .set_reliability(
+            cyclonedds_rs::dds_reliability_kind::DDS_RELIABILITY_BEST_EFFORT,
+            std::time::Duration::from_millis(500),
+        );
 
+    // Speed topic and reader
+    let topic = TopicBuilder::<Speed>::new()
+        .create(&participant)
+        .expect("Unable to create topic");
+    let reader = ReaderBuilder::new()
+        .as_async()
+        .with_qos(qos.clone())  // Qos can be cloned
+        .create(&subscriber, topic)
+        .expect("Unable to create reader");
 
-    let participant = DdsParticipant::create(None, None, Some(listener)).unwrap();
-    let subscriber = DdsSubscriber::create(&participant, None, None)
-                .expect("Unable to create subscriber");
+    // Window position topic and reader
+    let window_position = TopicBuilder::<Position>::new()
+        .create(&participant)
+        .expect("Unable to create topic for position");
+    let window_position_reader = ReaderBuilder::new()
+        .as_async()
+        .with_qos(qos)
+        .create(&subscriber, window_position)
+        .expect("Unable to create reader");
 
-    let topic = Speed::create_topic(&participant, None, None, None).unwrap();
-    let mut reader = DdsReader::create(&subscriber, topic, None, None).unwrap();
+    let mut speed_samples = SampleBuffer::<Speed>::new(1);
+    let mut window_position_samples = SampleBuffer::<Position>::new(5);
 
-    let window_position = Position::create_topic(&participant, None, None, None).unwrap();
-    let window_position_reader = DdsReader::create(&subscriber, window_position, None, None).unwrap();
-
-    let delay = time::Duration::from_millis(200);
-    let mut speed_samples = SampleBuffer::new(1);
-    let mut samples = SampleBuffer::new(5);
-
-    
-
-    loop {
-        thread::sleep(delay);
-       
-       
-        
-        if let Ok(num_read) = window_position_reader.read_now(&mut samples) {
-        for sample in samples.iter() {
-            //let data = sample.get().unwrap();
-            println!("Got {} samples time:{:?}", num_read, std::time::Instant::now());
-            if let Some(val) = sample.get() {
-                println!("Got window position : {} {} ", val.value().0.0, val.value().1 );
+    task::block_on(async move {
+        task::spawn(async move {
+            loop {
+                if let Ok(num_speed_samples) = reader.take(&mut speed_samples).await {
+                    for s in speed_samples.iter() {
+                        println!("Received speed: {:?}", s.get().unwrap().value().0)
+                    }
+                } else {
+                    break;
+                }
             }
-            println!("End samples");
-        }
-        } else {
-            println!("read failed");
-        }
+        });
 
-        if let Ok(_) = reader.read_now(&mut speed_samples) {
-            for s in speed_samples.iter() {
-                println!("Received speed: {:?}", s.get().unwrap().value().0)
+        loop {
+            if let Ok(num_window_samples) = window_position_reader
+                .take(&mut window_position_samples)
+                .await
+            {
+                for sample in window_position_samples.iter() {
+                    println!(
+                        "Got {} samples time:{:?}",
+                        num_window_samples,
+                        std::time::Instant::now()
+                    );
+                    if let Some(val) = sample.get() {
+                        println!(
+                            "Got window position : {} {} ",
+                            val.value().0 .0,
+                            val.value().1
+                        );
+                    }
+                    println!("End samples");
+                }
+            } else {
+                break;
             }
         }
-        
-
-    }
-
+    });
 }
