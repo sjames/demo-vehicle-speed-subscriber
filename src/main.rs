@@ -32,9 +32,8 @@ fn main() {
     let subscriber = SubscriberBuilder::new()
         .create(&participant)
         .expect("Unable to create subscriber");
-    let qos = DdsQos::create()
-        .unwrap()
-        .set_durability(cyclonedds_rs::dds_durability_kind::DDS_DURABILITY_VOLATILE)
+    let mut qos = DdsQos::create().unwrap();
+        qos.set_durability(cyclonedds_rs::dds_durability_kind::DDS_DURABILITY_VOLATILE)
         .set_reliability(
             cyclonedds_rs::dds_reliability_kind::DDS_RELIABILITY_BEST_EFFORT,
             std::time::Duration::from_millis(500),
