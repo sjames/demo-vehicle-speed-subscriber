@@ -7,7 +7,7 @@ edition = "2018"
 
 [dependencies]
 vehicle-signals = "0.2"
-cyclonedds-rs = "0.4.1"
+cyclonedds-rs = "=0.4.1"
 async-std = "1.9.0"
 futures = "0.3"
 
