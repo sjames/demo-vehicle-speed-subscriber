@@ -7,8 +7,9 @@ use cyclonedds_rs::dds_topic::DdsEntity;
 use cyclonedds_rs::serdes::{Sample, SampleBuffer};
 use cyclonedds_rs::*;
 use futures::{select, FutureExt};
-use vehicle_signals::v2::vehicle::cabin::door::window::Position;
-use vehicle_signals::v2::vehicle::Speed;
+use vehicle_signals::v3::vehicle::cabin::door::window::Position;
+use vehicle_signals::v3::vehicle::Speed;
+use std::ops::Deref;
 
 fn main() {
     // Listener for the participant to listen to the subscription matched status
@@ -35,7 +36,7 @@ fn main() {
     let mut qos = DdsQos::create().unwrap();
         qos.set_durability(cyclonedds_rs::dds_durability_kind::DDS_DURABILITY_VOLATILE)
         .set_reliability(
-            cyclonedds_rs::dds_reliability_kind::DDS_RELIABILITY_BEST_EFFORT,
+            cyclonedds_rs::dds_reliability_kind::DDS_RELIABILITY_RELIABLE,
             std::time::Duration::from_millis(500),
         );
 
@@ -67,7 +68,7 @@ fn main() {
             loop {
                 if let Ok(num_speed_samples) = reader.take(&mut speed_samples).await {
                     for s in speed_samples.iter() {
-                        println!("Received speed: {:?}", s.get().unwrap().value().0)
+                        println!("Received speed: {:?}", s.value().0)
                     }
                 } else {
                     break;
@@ -86,13 +87,13 @@ fn main() {
                         num_window_samples,
                         std::time::Instant::now()
                     );
-                    if let Some(val) = sample.get() {
-                        println!(
-                            "Got window position : {} {} ",
-                            val.value().0 .0,
-                            val.value().1
+                    //if let Some(val) = sample.deref() {
+                    println!(
+                        "Got window position : {} {} ",
+                        sample.value().0 .0,
+                        sample.value().1
                         );
-                    }
+                    //}
                     println!("End samples");
                 }
             } else {
